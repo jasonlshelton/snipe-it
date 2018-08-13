@@ -13,6 +13,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Password;
 
 class BulkUsersController extends Controller
 {
@@ -30,15 +31,37 @@ class BulkUsersController extends Controller
     {
         $this->authorize('update', User::class);
 
+        // Make sure there were users selected
         if (($request->filled('ids')) && (count($request->input('ids')) > 0)) {
+
             $statuslabel_list = Helper::statusLabelList();
+
+            // Get the list of affected users
             $users = User::whereIn('id', array_keys(request('ids')))
                 ->with('groups', 'assets', 'licenses', 'accessories')->get();
+
             if ($request->input('bulk_actions') == 'edit') {
                 return view('users/bulk-edit', compact('users'))
                     ->with('groups', Group::pluck('name', 'id'));
+
+            } elseif ($request->input('bulk_actions') == 'delete') {
+                return view('users/confirm-bulk-delete', compact('users', 'statuslabel_list'));
+
+            } elseif ($request->input('bulk_actions') == 'bulkpasswordreset') {
+                if ($users) {
+                    foreach ($users as $user) {
+                        if (($user->activated=='1') && ($user->email!='')) {
+                            $credentials = ['email' => $user->email];
+                            Password::sendResetLink($credentials, function (Message $message) {
+                                $message->subject($this->getEmailSubject());
+                            });
+                        }
+                    }
+                }
+                return redirect()->back()->with('success', trans('admin/users/message.password_resets_sent'));
+
             }
-            return view('users/confirm-bulk-delete', compact('users', 'statuslabel_list'));
+
         }
 
         return redirect()->back()->with('error', 'No users selected');
@@ -119,7 +142,7 @@ class BulkUsersController extends Controller
      */
     protected function conditionallyAddItem($field)
     {
-        if(request()->has($field)) {
+        if(request()->filled($field)) {
             $this->update_array[$field] = request()->input($field);
         }
         return $this;
@@ -200,5 +223,7 @@ class BulkUsersController extends Controller
             $logAction->logaction('checkin from');
         }
     }
+
+
 
 }
